@@ -106,7 +106,7 @@ services:
     networks:
       - app_network
     depends_on:
-      - nginx
+      - nginx 
   nginx:
     image: nginx:alpine
     container_name: nginx
@@ -124,7 +124,7 @@ services:
     container_name: vllm-local-1
     restart: unless-stopped
     volumes:
-      - /home/bsuir/bsuir-llm/models/gpt-oss-20b:/model
+      - /home/bsuir/bsuir-ll/models/gpt-oss-20b:/model
     command: --model /model --max-model-len 8192 --trust-remote-code
     deploy:
       resources:
@@ -141,7 +141,7 @@ services:
     container_name: vllm-local-2
     restart: unless-stopped
     volumes:
-      - /home/bsuir/bsuir-llm/models/gpt-oss-20b:/model
+      - /home/bsuir/bsuir-ll/models/gpt-oss-20b:/model
     command: --model /model --max-model-len 8192 --trust-remote-code
     deploy:
       resources:
