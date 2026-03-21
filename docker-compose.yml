@@ -5,36 +5,39 @@ services:
     image: ghcr.io/open-webui/open-webui:latest
     container_name: openwebui
     restart: unless-stopped
+    ports:
+      - "3000:8080"
     volumes:
       - ./data:/app/backend/data
     environment:
-      # SSL and network settings
+      # --- SSL and network settings ---
       ENABLE_WEB_LOADER_SSL_VERIFICATION: 'false'
       AIOHTTP_CLIENT_SESSION_TOOL_SERVER_SSL: 'false'
       AIOHTTP_CLIENT_SESSION_SSL: 'false'
       AIOHTTP_CLIENT_TIMEOUT_MODEL_LIST: '180'
       AIOHTTP_CLIENT_TIMEOUT: '3600'
 
-      # General settings
-      DEFAULT_MODELS: general_assistant
-      ENV: dev
+      # --- General settings ---
+      DEFAULT_MODELS: 'general_assistant'
+      ENV: 'dev'
       OFFLINE_MODE: 'true'
       SAFE_MODE: 'false'
       UVICORN_WORKERS: '1'
-      DEFAULT_LOCALE: ru-RU
+      DEFAULT_LOCALE: 'ru-RU'
       ENABLE_WEBSOCKET_SUPPORT: 'true'
       REDIS_ENABLED: 'false'
       ENABLE_USER_WEBHOOKS: 'false'
 
-      # Ollama integration
-      ENABLE_OLLAMA_API: 'true'
-      OPENAI_API_BASE_URLS: http://nginx:80/v1
+      # --- UI customization ---
+      WEBUI_NAME: 'Локальный Ассистент'
+      NEW_CHAT_DISCLAIMER: 'Это тестовый режим для обучения'
 
-      # UI customization
-      WEBUI_NAME: Локальный Ассистент
-      NEW_CHAT_DISCLAIMER: Это тестовый режим для обучения
+      # --- LLM API (Подключаем наш Nginx-балансировщик с vLLM) ---
+      ENABLE_OLLAMA_API: 'false'
+      OPENAI_API_BASE_URLS: 'http://nginx:80/v1'
+      OPENAI_API_KEY: 'sk-dummy-key' # Заглушка для vLLM
 
-      # Feature toggles
+      # --- Feature toggles ---
       ENABLE_REALTIME_CHAT_SAVE: 'true'
       ENABLE_FOLLOW_UP_GENERATION: 'false'
       ENABLE_CODE_EXECUTION: 'false'
@@ -47,7 +50,7 @@ services:
       ENABLE_IMAGE_PROMPT_GENERATION: 'false'
       ENABLE_DIRECT_CONNECTIONS: 'true'
 
-      # User permissions - Chat
+      # --- User permissions - Chat ---
       USER_PERMISSIONS_CHAT_CONTROLS: 'false'
       USER_PERMISSIONS_CHAT_SYSTEM_PROMPT: 'false'
       USER_PERMISSIONS_CHAT_PARAMS: 'false'
@@ -57,14 +60,14 @@ services:
       USER_PERMISSIONS_CHAT_MULTIPLE_MODELS: 'false'
       USER_PERMISSIONS_CHAT_TEMPORARY: 'false'
 
-      # User permissions - Features
+      # --- User permissions - Features ---
       USER_PERMISSIONS_FEATURES_DIRECT_TOOL_SERVERS: 'false'
       USER_PERMISSIONS_FEATURES_WEB_SEARCH: 'false'
       USER_PERMISSIONS_FEATURES_IMAGE_GENERATION: 'false'
       USER_PERMISSIONS_FEATURES_CODE_INTERPRETER: 'false'
       USER_PERMISSIONS_FEATURES_NOTES: 'true'
 
-      # User permissions - Workspace
+      # --- User permissions - Workspace ---
       USER_PERMISSIONS_WORKSPACE_MODELS_ACCESS: 'false'
       USER_PERMISSIONS_WORKSPACE_KNOWLEDGE_ACCESS: 'false'
       USER_PERMISSIONS_WORKSPACE_PROMPTS_ACCESS: 'false'
@@ -74,15 +77,15 @@ services:
       USER_PERMISSIONS_WORKSPACE_PROMPTS_ALLOW_PUBLIC_SHARING: 'false'
       USER_PERMISSIONS_WORKSPACE_TOOLS_ALLOW_PUBLIC_SHARING: 'false'
 
-      # RAG settings
-      RAG_EMBEDDING_ENGINE: openai
-      RAG_EMBEDDING_MODEL: embedding_model
+      # --- RAG settings (Локальные эмбеддинги внутри Open WebUI) ---
+      RAG_EMBEDDING_ENGINE: 'sentence-transformers'
+      RAG_EMBEDDING_MODEL: 'sentence-transformers/all-MiniLM-L6-v2'
       ENABLE_RAG_HYBRID_SEARCH: 'true'
       RAG_TOP_K: '40'
       RAG_TOP_K_RERANKER: '20'
       RAG_RELEVANCE_THRESHOLD: '0.2'
       RAG_HYBRID_BM25_WEIGHT: '0.5'
-      RAG_TEXT_SPLITTER: character
+      RAG_TEXT_SPLITTER: 'character'
       CHUNK_SIZE: '200'
       CHUNK_OVERLAP: '50'
       PDF_EXTRACT_IMAGES: 'false'
@@ -93,64 +96,63 @@ services:
       BYPASS_EMBEDDING_AND_RETRIEVAL: 'false'
       ENABLE_RAG_LOCAL_WEB_FETCH: 'false'
       RAG_FULL_CONTEXT: 'false'
-      RAG_EMBEDDING_MODEL_TRUST_REMOTE_CODE: 'false'
-      RAG_RERANKING_MODEL_TRUST_REMOTE_CODE: 'false'
-      RAG_EMBEDDING_MODEL_AUTO_UPDATE: 'false'
-      RAG_RERANKING_MODEL_AUTO_UPDATE: 'false'
-      RAG_OPENAI_API_BASE_URL: http://nginx:80/v1
-
-      # Authentication
-      JWT_EXPIRES_IN: 1w
-      DEFAULT_USER_ROLE: user
+      
+      # --- Authentication ---
+      JWT_EXPIRES_IN: '1w'
+      DEFAULT_USER_ROLE: 'user'
       ENABLE_OAUTH_SIGNUP: 'false'
       ENABLE_LOGIN_FORM: 'true'
       ENABLE_SIGNUP: 'true'
     networks:
       - app_network
-
-  model-replica-1:
-    image: ollama/ollama:latest
-    container_name: model-replica-1
-    restart: unless-stopped
-    volumes:
-      - /home/bsuir/bsuir-ll/models/gpt-oss-20b:/root/.ollama/models
-      - model-replica-1-data:/root/.ollama
-    environment:
-      - OLLAMA_HOST=0.0.0.0:11434
-    networks:
-      - app_network
-
-  model-replica-2:
-    image: ollama/ollama:latest
-    container_name: model-replica-2
-    restart: unless-stopped
-    volumes:
-      - /home/bsuir/bsuir-ll/models/gpt-oss-20b:/root/.ollama/models
-      - model-replica-2-data:/root/.ollama
-    environment:
-      - OLLAMA_HOST=0.0.0.0:11434
-    networks:
-      - app_network
-
+    depends_on:
+      - nginx
   nginx:
     image: nginx:alpine
     container_name: nginx
     restart: unless-stopped
-    ports:
-      - "80:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - openwebui
-      - model-replica-1
-      - model-replica-2
+      - vllm-local-1
+      - vllm-local-2
+    networks:
+      - app_network
+
+  vllm-local-1:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-local-1
+    restart: unless-stopped
+    volumes:
+      - /home/bsuir/bsuir-llm/models/gpt-oss-20b:/model
+    command: --model /model --max-model-len 8192 --trust-remote-code
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['0']
+              capabilities: [gpu]
+    networks:
+      - app_network
+
+  vllm-local-2:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-local-2
+    restart: unless-stopped
+    volumes:
+      - /home/bsuir/bsuir-llm/models/gpt-oss-20b:/model
+    command: --model /model --max-model-len 8192 --trust-remote-code
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['1']
+              capabilities: [gpu]
     networks:
       - app_network
 
 networks:
   app_network:
     driver: bridge
-
-volumes:
-  model-replica-1-data:
-  model-replica-2-data:
