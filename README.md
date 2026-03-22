@@ -28,19 +28,14 @@
 ## Быстрый старт
 
 ```bash
-# Подготовка переменных окружения
 cp .env.example .env
 
-# Запуск всех сервисов
 docker compose up --build
 
-# Проверка статуса
 docker compose ps
 
-# Доступ к интерфейсу
 open http://localhost
 
-# Проверка балансировки
 curl http://localhost:8080/v1/models
 ```
 
@@ -49,7 +44,7 @@ curl http://localhost:8080/v1/models
 ## Компоненты
 
 ### OpenWebUI
-- **Порт**: 3000 (внешний), 8080 (внутренний)
+- **Порт**: 8080 (внутренний)
 - **База данных**: PostgreSQL
 - **LLM API**: Через nginx-lb (localhost:8080/v1)
 
@@ -75,7 +70,7 @@ curl http://localhost:8080/v1/models
 ## Тестирование балансировки
 
 ```bash
-# Проверка распределения запросов
+
 for i in {1..10}; do
   curl -s http://localhost:8080/v1/models | jq -r '.data[0].server_id'
 done
@@ -86,10 +81,8 @@ done
 ## Логи
 
 ```bash
-# Все логи
 docker compose logs -f
 
-# Конкретный сервис
 docker compose logs -f openwebui
 docker compose logs -f nginx-lb
 ```
@@ -112,6 +105,5 @@ docker compose down -v  # с удалением volumes
 ### Масштабирование
 
 ```bash
-# Добавить ещё один сервер
 docker compose up --scale test-server-1=2
 ```
