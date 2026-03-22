@@ -28,6 +28,9 @@
 ## Быстрый старт
 
 ```bash
+# Подготовка переменных окружения
+cp .env.example .env
+
 # Запуск всех сервисов
 docker compose up --build
 
@@ -35,11 +38,13 @@ docker compose up --build
 docker compose ps
 
 # Доступ к интерфейсу
-open http://localhost:3000
+open http://localhost
 
 # Проверка балансировки
 curl http://localhost:8080/v1/models
 ```
+
+Все чувствительные и значимые параметры вынесены в `.env`. Файл `.env` не коммитится, для репозитория используется только `.env.example`.
 
 ## Компоненты
 
@@ -51,7 +56,7 @@ curl http://localhost:8080/v1/models
 ### PostgreSQL
 - **Порт**: 5432
 - **База**: openwebui
-- **Пользователь**: openwebui/openwebui
+- **Пользователь**: задаётся через `.env`
 
 ### Nginx (Frontend)
 - **Порт**: 80

@@ -4,17 +4,15 @@ services:
     container_name: postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: openwebui
-      POSTGRES_PASSWORD: openwebui
-      POSTGRES_DB: openwebui
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - ./postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     networks:
       - app_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U openwebui"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -23,17 +21,29 @@ services:
     image: ghcr.io/open-webui/open-webui:latest
     container_name: openwebui
     restart: unless-stopped
-    ports:
-      - "3000:8080"
     volumes:
       - ./data:/app/backend/data
+      - ./branding/bsuir-logo.png:/app/build/static/logo.png:ro
+      - ./branding/bsuir-logo.png:/app/backend/open_webui/static/logo.png:ro
+      - ./branding/bsuir-logo.png:/app/build/static/favicon.png:ro
+      - ./branding/bsuir-logo.png:/app/backend/open_webui/static/favicon.png:ro
+      - ./branding/bsuir-logo.png:/app/build/static/favicon-dark.png:ro
+      - ./branding/bsuir-logo.png:/app/backend/open_webui/static/favicon-dark.png:ro
+      - ./branding/bsuir-logo.png:/app/build/static/splash.png:ro
+      - ./branding/bsuir-logo.png:/app/backend/open_webui/static/splash.png:ro
+      - ./branding/bsuir-logo.png:/app/build/static/splash-dark.png:ro
+      - ./branding/bsuir-logo.png:/app/backend/open_webui/static/splash-dark.png:ro
+      - ./branding/bsuir-logo.png:/app/build/static/apple-touch-icon.png:ro
+      - ./branding/bsuir-logo.png:/app/backend/open_webui/static/apple-touch-icon.png:ro
+      - ./branding/bsuir-logo.svg:/app/build/static/favicon.svg:ro
+      - ./branding/bsuir-logo.svg:/app/backend/open_webui/static/favicon.svg:ro
     environment:
       ENABLE_WEB_LOADER_SSL_VERIFICATION: 'false'
       AIOHTTP_CLIENT_SESSION_TOOL_SERVER_SSL: 'false'
       AIOHTTP_CLIENT_SESSION_SSL: 'false'
       AIOHTTP_CLIENT_TIMEOUT_MODEL_LIST: '180'
       AIOHTTP_CLIENT_TIMEOUT: '3600'
-      DEFAULT_MODELS: 'general_assistant'
+      DEFAULT_MODELS: ${OPENWEBUI_DEFAULT_MODEL}
       ENV: 'dev'
       OFFLINE_MODE: 'true'
       SAFE_MODE: 'false'
@@ -42,12 +52,12 @@ services:
       ENABLE_WEBSOCKET_SUPPORT: 'true'
       REDIS_ENABLED: 'false'
       ENABLE_USER_WEBHOOKS: 'false'
-      WEBUI_NAME: 'Локальный Ассистент'
-      NEW_CHAT_DISCLAIMER: 'Это тестовый режим для обучения'
+      WEBUI_NAME: ${OPENWEBUI_NAME}
+      NEW_CHAT_DISCLAIMER: ${OPENWEBUI_DISCLAIMER}
       ENABLE_OLLAMA_API: 'false'
-      OPENAI_API_BASE_URLS: 'http://nginx-lb:8080/v1'
-      OPENAI_API_KEY: 'sk-dummy-key'
-      DATABASE_URL: 'postgresql://openwebui:openwebui@postgres:5432/openwebui'
+      OPENAI_API_BASE_URLS: ${OPENAI_API_BASE_URLS}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
       ENABLE_REALTIME_CHAT_SAVE: 'true'
       ENABLE_FOLLOW_UP_GENERATION: 'false'
       ENABLE_CODE_EXECUTION: 'false'
@@ -99,7 +109,7 @@ services:
       BYPASS_EMBEDDING_AND_RETRIEVAL: 'false'
       ENABLE_RAG_LOCAL_WEB_FETCH: 'false'
       RAG_FULL_CONTEXT: 'false'
-      RAG_OPENAI_API_BASE_URL: 'http://nginx-lb:8080/v1'
+      RAG_OPENAI_API_BASE_URL: ${RAG_OPENAI_API_BASE_URL}
       JWT_EXPIRES_IN: '1w'
       DEFAULT_USER_ROLE: 'user'
       ENABLE_OAUTH_SIGNUP: 'false'
@@ -121,9 +131,87 @@ services:
     container_name: nginx
     restart: unless-stopped
     ports:
-      - "80:80"
+      - "${NGINX_HTTP_PORT}:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - app_network
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+      - --web.external-url=${PROMETHEUS_EXTERNAL_URL}
+      - --web.route-prefix=/
+    networks:
+      - app_network
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    restart: unless-stopped
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+      - /etc:/host/etc:ro
+      - /var/lib:/var/lib:ro
+    networks:
+      - app_network
+
+  # dcgm-exporter GPU monitoring (uncomment if GPU available)
+  # dcgm-exporter:
+  #   image: nvidia/dcgm-exporter:2.5.7-2.10.1-ubuntu20.04
+  #   container_name: dcgm-exporter
+  #   restart: unless-stopped
+  #   environment:
+  #     - NVIDIA_VISIBLE_DEVICES=all
+  #     - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+  #   networks:
+  #     - app_network
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    restart: unless-stopped
+    privileged: true
+    command:
+      - --docker_only=true
+      - --store_container_labels=true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - app_network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL}
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+    volumes:
+      - ./grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+      - postgres
     networks:
       - app_network
 
@@ -132,7 +220,7 @@ services:
     container_name: nginx-lb
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "${NGINX_LB_PORT}:8080"
     volumes:
       - ./nginx-lb.conf:/etc/nginx/nginx.conf:ro
     depends_on:
@@ -153,7 +241,13 @@ services:
     networks:
       - app_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+        ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -170,7 +264,13 @@ services:
     networks:
       - app_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+        ]
       interval: 10s
       timeout: 5s
       retries: 3
