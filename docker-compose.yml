@@ -1,6 +1,24 @@
-version: '3.8'
-
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: openwebui
+      POSTGRES_PASSWORD: openwebui
+      POSTGRES_DB: openwebui
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openwebui"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   openwebui:
     image: ghcr.io/open-webui/open-webui:latest
     container_name: openwebui
@@ -10,14 +28,11 @@ services:
     volumes:
       - ./data:/app/backend/data
     environment:
-      # --- SSL and network settings ---
       ENABLE_WEB_LOADER_SSL_VERIFICATION: 'false'
       AIOHTTP_CLIENT_SESSION_TOOL_SERVER_SSL: 'false'
       AIOHTTP_CLIENT_SESSION_SSL: 'false'
       AIOHTTP_CLIENT_TIMEOUT_MODEL_LIST: '180'
       AIOHTTP_CLIENT_TIMEOUT: '3600'
-
-      # --- General settings ---
       DEFAULT_MODELS: 'general_assistant'
       ENV: 'dev'
       OFFLINE_MODE: 'true'
@@ -27,17 +42,12 @@ services:
       ENABLE_WEBSOCKET_SUPPORT: 'true'
       REDIS_ENABLED: 'false'
       ENABLE_USER_WEBHOOKS: 'false'
-
-      # --- UI customization ---
       WEBUI_NAME: 'Локальный Ассистент'
       NEW_CHAT_DISCLAIMER: 'Это тестовый режим для обучения'
-
-      # --- LLM API (Подключаем наш Nginx-балансировщик с vLLM) ---
       ENABLE_OLLAMA_API: 'false'
-      OPENAI_API_BASE_URLS: 'http://nginx:80/v1'
-      OPENAI_API_KEY: 'sk-dummy-key' # Заглушка для vLLM
-
-      # --- Feature toggles ---
+      OPENAI_API_BASE_URLS: 'http://nginx-lb:8080/v1'
+      OPENAI_API_KEY: 'sk-dummy-key'
+      DATABASE_URL: 'postgresql://openwebui:openwebui@postgres:5432/openwebui'
       ENABLE_REALTIME_CHAT_SAVE: 'true'
       ENABLE_FOLLOW_UP_GENERATION: 'false'
       ENABLE_CODE_EXECUTION: 'false'
@@ -49,8 +59,6 @@ services:
       ENABLE_IMAGE_GENERATION: 'false'
       ENABLE_IMAGE_PROMPT_GENERATION: 'false'
       ENABLE_DIRECT_CONNECTIONS: 'true'
-
-      # --- User permissions - Chat ---
       USER_PERMISSIONS_CHAT_CONTROLS: 'false'
       USER_PERMISSIONS_CHAT_SYSTEM_PROMPT: 'false'
       USER_PERMISSIONS_CHAT_PARAMS: 'false'
@@ -59,15 +67,11 @@ services:
       USER_PERMISSIONS_CHAT_CALL: 'false'
       USER_PERMISSIONS_CHAT_MULTIPLE_MODELS: 'false'
       USER_PERMISSIONS_CHAT_TEMPORARY: 'false'
-
-      # --- User permissions - Features ---
       USER_PERMISSIONS_FEATURES_DIRECT_TOOL_SERVERS: 'false'
       USER_PERMISSIONS_FEATURES_WEB_SEARCH: 'false'
       USER_PERMISSIONS_FEATURES_IMAGE_GENERATION: 'false'
       USER_PERMISSIONS_FEATURES_CODE_INTERPRETER: 'false'
       USER_PERMISSIONS_FEATURES_NOTES: 'true'
-
-      # --- User permissions - Workspace ---
       USER_PERMISSIONS_WORKSPACE_MODELS_ACCESS: 'false'
       USER_PERMISSIONS_WORKSPACE_KNOWLEDGE_ACCESS: 'false'
       USER_PERMISSIONS_WORKSPACE_PROMPTS_ACCESS: 'false'
@@ -77,9 +81,8 @@ services:
       USER_PERMISSIONS_WORKSPACE_PROMPTS_ALLOW_PUBLIC_SHARING: 'false'
       USER_PERMISSIONS_WORKSPACE_TOOLS_ALLOW_PUBLIC_SHARING: 'false'
 
-      # --- RAG settings (Локальные эмбеддинги внутри Open WebUI) ---
-      RAG_EMBEDDING_ENGINE: 'sentence-transformers'
-      RAG_EMBEDDING_MODEL: 'sentence-transformers/all-MiniLM-L6-v2'
+      RAG_EMBEDDING_ENGINE: 'openai'
+      RAG_EMBEDDING_MODEL: 'text-embedding-3-small'
       ENABLE_RAG_HYBRID_SEARCH: 'true'
       RAG_TOP_K: '40'
       RAG_TOP_K_RERANKER: '20'
@@ -96,8 +99,7 @@ services:
       BYPASS_EMBEDDING_AND_RETRIEVAL: 'false'
       ENABLE_RAG_LOCAL_WEB_FETCH: 'false'
       RAG_FULL_CONTEXT: 'false'
-      
-      # --- Authentication ---
+      RAG_OPENAI_API_BASE_URL: 'http://nginx-lb:8080/v1'
       JWT_EXPIRES_IN: '1w'
       DEFAULT_USER_ROLE: 'user'
       ENABLE_OAUTH_SIGNUP: 'false'
@@ -106,53 +108,76 @@ services:
     networks:
       - app_network
     depends_on:
-      - nginx 
+      - nginx-lb
+      - postgres
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s 
   nginx:
     image: nginx:alpine
     container_name: nginx
     restart: unless-stopped
+    ports:
+      - "80:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - app_network
+
+  nginx-lb:
+    image: nginx:alpine
+    container_name: nginx-lb
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./nginx-lb.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - vllm-local-1
-      - vllm-local-2
+      - test-server-1
+      - test-server-2
     networks:
       - app_network
 
-  vllm-local-1:
-    image: vllm/vllm-openai:latest
-    container_name: vllm-local-1
+  test-server-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: test-server-1
     restart: unless-stopped
-    volumes:
-      - /home/bsuir/bsuir-ll/models/gpt-oss-20b:/model
-    command: --model /model --max-model-len 8192 --trust-remote-code
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ['0']
-              capabilities: [gpu]
+    environment:
+      PORT: '8000'
+      SERVER_ID: 'server-1'
     networks:
       - app_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
-  vllm-local-2:
-    image: vllm/vllm-openai:latest
-    container_name: vllm-local-2
+  test-server-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: test-server-2
     restart: unless-stopped
-    volumes:
-      - /home/bsuir/bsuir-ll/models/gpt-oss-20b:/model
-    command: --model /model --max-model-len 8192 --trust-remote-code
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ['1']
-              capabilities: [gpu]
+    environment:
+      PORT: '8000'
+      SERVER_ID: 'server-2'
     networks:
       - app_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
 networks:
   app_network:
     driver: bridge
+
+volumes:
+  postgres_data:

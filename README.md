@@ -1,55 +1,112 @@
-# Локальная установка OpenWebUI с Ollama и Nginx балансировщиком
+# OpenWebUI с Load Balancing
 
-Этот проект настраивает локальную среду для OpenWebUI, подключенной к моделям через Ollama, с Nginx в качестве reverse proxy и балансировщика нагрузки.
+Мини-система для тестирования OpenWebUI с балансировкой нагрузки между тестовыми LLM серверами.
+
+## Архитектура
+
+```
+┌─────────────────┐    ┌─────────────┐    ┌─────────────────┐
+│   Browser       │────│   Nginx     │────│   OpenWebUI     │
+│   localhost:80  │    │   :80       │    │   :8080         │
+└─────────────────┘    └─────────────┘    └─────────────────┘
+                                │
+                                ▼
+                       ┌─────────────────┐
+                       │   Nginx-LB      │
+                       │   :8080         │
+                       └─────────────────┘
+                                │
+                    ┌───────────┼───────────┐
+                    │           │           │
+           ┌────────▼───┐ ┌────▼───┐ ┌────▼───┐
+           │ Test-Server│ │ Test-  │ │ Test-  │
+           │     1      │ │ Server │ │ Server │
+           │   :8000    │ │   2    │ │   3    │
+           └────────────┘ └────────┘ └────────┘
+```
+
+## Быстрый старт
+
+```bash
+# Запуск всех сервисов
+docker compose up --build
+
+# Проверка статуса
+docker compose ps
+
+# Доступ к интерфейсу
+open http://localhost:3000
+
+# Проверка балансировки
+curl http://localhost:8080/v1/models
+```
 
 ## Компоненты
 
-- **OpenWebUI**: Веб-интерфейс для взаимодействия с AI моделями.
-- **Ollama**: Сервис для запуска локальных AI моделей.
-- **Nginx**: Reverse proxy и балансировщик нагрузки для OpenWebUI.
+### OpenWebUI
+- **Порт**: 3000 (внешний), 8080 (внутренний)
+- **База данных**: PostgreSQL
+- **LLM API**: Через nginx-lb (localhost:8080/v1)
 
-## Запуск
+### PostgreSQL
+- **Порт**: 5432
+- **База**: openwebui
+- **Пользователь**: openwebui/openwebui
 
-1. Убедитесь, что Docker и Docker Compose установлены.
+### Nginx (Frontend)
+- **Порт**: 80
+- Проксирует запросы к OpenWebUI
 
-2. Клонируйте или скачайте файлы `docker-compose.yml` и `nginx.conf` в одну папку.
+### Nginx-LB (Load Balancer)
+- **Порт**: 8080
+- Балансировка между test-server-1 и test-server-2
+- Алгоритм: least_conn
 
-3. Запустите сервисы:
-   ```
-   docker-compose up -d
-   ```
+### Test Servers
+- **test-server-1/2**: Python Flask серверы
+- Имитируют OpenAI-compatible API
+- Эндпоинты: /v1/models, /v1/chat/completions, /v1/embeddings, /health
 
-4. Доступ к OpenWebUI через браузер: `http://localhost`
+## Тестирование балансировки
 
-5. Для остановки:
-   ```
-   docker-compose down
-   ```
+```bash
+# Проверка распределения запросов
+for i in {1..10}; do
+  curl -s http://localhost:8080/v1/models | jq -r '.data[0].server_id'
+done
 
-## Настройка моделей
-
-После запуска Ollama, скачайте нужные модели. Например:
+# Должно показать чередование: server-1, server-2, server-1, server-2...
 ```
-docker-compose exec ollama ollama pull llama2
+
+## Логи
+
+```bash
+# Все логи
+docker compose logs -f
+
+# Конкретный сервис
+docker compose logs -f openwebui
+docker compose logs -f nginx-lb
 ```
 
-Затем в OpenWebUI выберите модель.
+## Остановка
 
-## Переменные окружения
+```bash
+docker compose down
+docker compose down -v  # с удалением volumes
+```
 
-Env переменные адаптированы для локальной среды. Основные изменения:
-- Отключены SSL и OAuth.
-- Включен Ollama API.
-- Используется SQLite для базы данных (по умолчанию).
-- Упрощены разрешения пользователей.
+## Разработка
 
-## Troubleshooting
+### Добавление нового test-server
 
-- Если OpenWebUI не запускается, проверьте логи: `docker-compose logs openwebui`
-- Для Nginx: `docker-compose logs nginx`
-- Убедитесь, что порты 80 и 11434 свободны.
-- Если проблемы с моделями, проверьте Ollama: `docker-compose exec ollama ollama list`
+1. Скопировать блок test-server-1 в docker-compose.yml
+2. Изменить имя на test-server-3
+3. Добавить в upstream llm_backend в nginx-lb.conf
 
-## Безопасность
+### Масштабирование
 
-Это локальная установка для обучения. Не используйте в продакшене без дополнительных настроек безопасности.# bsuir-llm
+```bash
+# Добавить ещё один сервер
+docker compose up --scale test-server-1=2
+```
