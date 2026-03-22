@@ -74,8 +74,6 @@ curl http://localhost:8080/v1/models
 for i in {1..10}; do
   curl -s http://localhost:8080/v1/models | jq -r '.data[0].server_id'
 done
-
-# Должно показать чередование: server-1, server-2, server-1, server-2...
 ```
 
 ## Логи
@@ -91,7 +89,7 @@ docker compose logs -f nginx-lb
 
 ```bash
 docker compose down
-docker compose down -v  # с удалением volumes
+docker compose down -v  
 ```
 
 ## Разработка
